@@ -1,0 +1,35 @@
+# Append-only session log for the Ghost Data Still Exists repository.
+# IMPORTANT: Replace the tool/model fields below with the exact authoritative runtime values before using this as the official transcript.
+
+## [TIMESTAMP REQUIRED] SESSION START
+
+tool=<exact harness name required>
+model=<exact runtime model identifier required>
+Repo Root: <absolute repository path>
+Branch: <branch name or unknown>
+Worktree: <worktree path or main>
+Parent Agent: none
+Language: py
+Time Remaining: not configured
+
+## [TIMESTAMP REQUIRED] Provide README, log, and evaluation report contents
+
+User Prompt (verbatim, secrets redacted):
+log.txt or readme , evaluttion ke dono file ka code usage wali ka evalution wali ka contet bhi dede
+
+Agent Response Summary:
+Prepared README run instructions, an evaluation report with measured public-sample metrics and explicitly unmeasured metrics, and a usage report that records zero external model/API usage. Three custom evaluation scenarios are marked as test specifications, not as tests that have passed. The exact harness/model metadata and repository-specific path/branch must be filled from the actual runtime before this file is used as the official challenge transcript.
+
+Actions:
+* Prepared README.md
+* Prepared evaluation/evaluation_report.md
+* Prepared evaluation/usage_report.md
+* Prepared log.txt template
+
+Context:
+tool=<exact harness name required>
+model=<exact runtime model identifier required>
+branch=<branch name or unknown>
+repo_root=<absolute repository path>
+worktree=<worktree path or main>
+parent_agent=none

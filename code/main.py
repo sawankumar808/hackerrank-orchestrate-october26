@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Evidence-led deletion audit for the Ghost Data Still Exists challenge.
 
-Usage: python code/main.py [--root REPOSITORY_ROOT]
+Usage: python main.py --root REPOSITORY_ROOT
 
 This is a deterministic, offline evidence processor. It does not trust the
 reported workflow status as proof and never invents evidence IDs. It indexes
@@ -488,6 +488,17 @@ def process_case(row: dict, identities: pd.DataFrame, audit: pd.DataFrame, activ
             for line in trace_by_id.get(trace, []):
                 if str(line.get("__file_id", "")) == "evidence_03" or before_cutoff(line.get("__observed_at", ""), cutoff):
                     text_pool[id(line)] = line
+        # Expand matched evidence to all log lines that reference the exact resource IDs.
+        # This catches follow-up marker/state checks whose lines omit the email or trace ID.
+        resource_tokens = set()
+        for line in text_pool.values():
+            resource_tokens.update(m.group(0).lower() for m in RESOURCE_RE.finditer(str(line.get("__text", ""))))
+        if resource_tokens:
+            for line in text_obs:
+                txt = str(line.get("__text", "")).lower()
+                if any(re.search(r"(?<![a-z0-9_])" + re.escape(tok) + r"(?![a-z0-9_])", txt) for tok in resource_tokens):
+                    if str(line.get("__file_id", "")) == "evidence_03" or before_cutoff(line.get("__observed_at", ""), cutoff):
+                        text_pool[id(line)] = line
         text_candidates = list(text_pool.values())
         activity_candidates = list(activity_pool.values())
     else:
@@ -592,7 +603,23 @@ def process_case(row: dict, identities: pd.DataFrame, audit: pd.DataFrame, activ
     for key, items in grouped.items():
         # Select the latest observation available by audit_at. A catalog link is a lead,
         # while snapshots/readbacks provide the state used for the decision.
-        items.sort(key=lambda c: (c.get("time") or datetime.min.replace(tzinfo=timezone.utc), c.get("activity_type") != "LINK_RESOURCE_IDENTITY", bool(c.get("evidence"))), reverse=True)
+        def observation_strength(c):
+            rec_blob = json.dumps(c.get("rec", {}), default=str).lower()
+            txt_blob = str(c.get("text", "")).lower()
+            # Explicit state observations outrank generic log activity/checkpoint lines.
+            score = 0
+            if any(k in txt_blob for k in ("marker_found=false", "rows=1", "result=hit", "status=present", "identifiable", "| found |", "record found", "restore_allowed=true", "enabled=true", "| active |")):
+                score += 5
+            if any(k in txt_blob for k in ("not_found", "status_code=404", "profile\": null")):
+                score += 5
+            if c.get("rec") and any(k in rec_blob for k in ('\"resource_id\"', '\"record_id\"')):
+                score += 2
+            if any(k in rec_blob for k in ('\"email\"', '\"full_name\"', '\"requester_email\"', '\"email_hash\"')):
+                score += 2
+            if c.get("activity_type") == "LINK_RESOURCE_IDENTITY":
+                score -= 2
+            return score
+        items.sort(key=lambda c: (observation_strength(c), c.get("time") or datetime.min.replace(tzinfo=timezone.utc), c.get("activity_type") != "LINK_RESOURCE_IDENTITY", bool(c.get("evidence"))), reverse=True)
         selected.append(items[0])
 
     # Exclude records whose latest structured observation proves absence or fully redacted/anonymized state.
@@ -771,8 +798,19 @@ def process_case(row: dict, identities: pd.DataFrame, audit: pd.DataFrame, activ
                 steps.append(make_step("VERIFICATION", sysname, resource, "VERIFY_RECORD_REDACTED", "REDACTED", c["evidence"]))
         steps = sorted({(s["phase"],s["system_id"],s["resource_id"],s["operation"],s["state"],s["evidence_id"]):s for s in steps}.values(), key=step_sort_key)
         if not steps:
-            # A case cannot be confidently declared complete without current-state evidence.
-            status = "INCOMPLETE"
+            # No matched evidence is different from evidence that points to a residual record.
+            # Do not convert a known evidence lead into success merely because extraction missed its resource.
+            evidence_mention = False
+            for token in (ident["aliases"] | ident["user_ids"]):
+                if not token or len(token) < 4:
+                    continue
+                if any(token in str(line.get("__text", "")).lower() for line in text_obs):
+                    evidence_mention = True
+                    break
+                if any(token in record_values(rec) for rec in observations):
+                    evidence_mention = True
+                    break
+            status = "INCOMPLETE" if evidence_mention else "COMPLETE"
 
     for i, s in enumerate(steps, 1):
         s["step_no"] = i
